@@ -47,14 +47,10 @@ from PIL import ImageDraw
 from PIL import ImageFont
 
 import common
+from model import CLASSES
 
-FONT_DIR = "./fonts"
-FONT_HEIGHT = 32  # Pixel size to which the chars are resized
-
-OUTPUT_SHAPE = (64, 128)
-
-CHARS = common.CHARS + " "
-
+OUTPUT_SHAPE = (128, 128)
+SIGNS_FOLDER = "signs"
 
 def make_char_ims(font_path, output_height):
     font_size = output_height * 4
@@ -94,17 +90,6 @@ def euler_to_mat(yaw, pitch, roll):
                       [ 0., 0., 1.]]) * M
 
     return M
-
-
-def pick_colors():
-    first = True
-    while first or plate_color - text_color < 0.3:
-        text_color = random.random()
-        plate_color = random.random()
-        if text_color > plate_color:
-            text_color, plate_color = plate_color, text_color
-        first = False
-    return text_color, plate_color
 
 
 def make_affine_transform(from_shape, to_shape, 
@@ -157,63 +142,6 @@ def make_affine_transform(from_shape, to_shape,
     return M, out_of_bounds
 
 
-def generate_code():
-    return "{}{}{}{} {}{}{}".format(
-        random.choice(common.LETTERS),
-        random.choice(common.LETTERS),
-        random.choice(common.DIGITS),
-        random.choice(common.DIGITS),
-        random.choice(common.LETTERS),
-        random.choice(common.LETTERS),
-        random.choice(common.LETTERS))
-
-
-def rounded_rect(shape, radius):
-    out = numpy.ones(shape)
-    out[:radius, :radius] = 0.0
-    out[-radius:, :radius] = 0.0
-    out[:radius, -radius:] = 0.0
-    out[-radius:, -radius:] = 0.0
-
-    cv2.circle(out, (radius, radius), radius, 1.0, -1)
-    cv2.circle(out, (radius, shape[0] - radius), radius, 1.0, -1)
-    cv2.circle(out, (shape[1] - radius, radius), radius, 1.0, -1)
-    cv2.circle(out, (shape[1] - radius, shape[0] - radius), radius, 1.0, -1)
-
-    return out
-
-
-def generate_plate(font_height, char_ims):
-    h_padding = random.uniform(0.2, 0.4) * font_height
-    v_padding = random.uniform(0.1, 0.3) * font_height
-    spacing = font_height * random.uniform(-0.05, 0.05)
-    radius = 1 + int(font_height * 0.1 * random.random())
-
-    code = generate_code()
-    text_width = sum(char_ims[c].shape[1] for c in code)
-    text_width += (len(code) - 1) * spacing
-
-    out_shape = (int(font_height + v_padding * 2),
-                 int(text_width + h_padding * 2))
-
-    text_color, plate_color = pick_colors()
-    
-    text_mask = numpy.zeros(out_shape)
-    
-    x = h_padding
-    y = v_padding 
-    for c in code:
-        char_im = char_ims[c]
-        ix, iy = int(x), int(y)
-        text_mask[iy:iy + char_im.shape[0], ix:ix + char_im.shape[1]] = char_im
-        x += char_im.shape[1] + spacing
-
-    plate = (numpy.ones(out_shape) * plate_color * (1. - text_mask) +
-             numpy.ones(out_shape) * text_color * text_mask)
-
-    return plate, rounded_rect(out_shape, radius), code.replace(" ", "")
-
-
 def generate_bg(num_bg_images):
     found = False
     while not found:
@@ -229,31 +157,42 @@ def generate_bg(num_bg_images):
 
     return bg
 
+def generate_sign():
+    class_name = numpy.random.choice(CLASSES)
 
-def generate_im(char_ims, num_bg_images):
+    fname = "{}/{}.png".format(SIGNS_FOLDER, class_name)
+    image = cv2.imread(fname, cv2.CV_LOAD_IMAGE_UNCHANGED)
+    b, g, r, a = cv2.split(image)
+
+    sign_color = cv2.merge((b, g, r))
+    sign = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) / 255.
+
+    return sign, a, class_name
+
+def generate_im(num_bg_images):
     bg = generate_bg(num_bg_images)
 
-    plate, plate_mask, code = generate_plate(FONT_HEIGHT, char_ims)
+    sign, sign_mask, name = generate_sign()
     
     M, out_of_bounds = make_affine_transform(
-                            from_shape=plate.shape,
+                            from_shape=sign.shape,
                             to_shape=bg.shape,
                             min_scale=0.6,
                             max_scale=0.875,
                             rotation_variation=1.0,
                             scale_variation=1.5,
                             translation_variation=1.2)
-    plate = cv2.warpAffine(plate, M, (bg.shape[1], bg.shape[0]))
-    plate_mask = cv2.warpAffine(plate_mask, M, (bg.shape[1], bg.shape[0]))
+    sign = cv2.warpAffine(sign, M, (bg.shape[1], bg.shape[0]))
+    sign_mask = cv2.warpAffine(sign_mask, M, (bg.shape[1], bg.shape[0]))
 
-    out = plate * plate_mask + bg * (1.0 - plate_mask)
+    out = sign * sign_mask + bg * (1.0 - sign_mask)
 
     out = cv2.resize(out, (OUTPUT_SHAPE[1], OUTPUT_SHAPE[0]))
 
     out += numpy.random.normal(scale=0.05, size=out.shape)
     out = numpy.clip(out, 0., 1.)
 
-    return out, code, not out_of_bounds
+    return out, name, not out_of_bounds
 
 
 def load_fonts(folder_path):
@@ -268,17 +207,15 @@ def load_fonts(folder_path):
 
 def generate_ims():
     """
-    Generate number plate images.
+    Generate sign images.
 
     :return:
-        Iterable of number plate images.
+        Iterable of sign images.
 
     """
-    variation = 1.0
-    fonts, font_char_ims = load_fonts(FONT_DIR)
     num_bg_images = len(os.listdir("bgs"))
     while True:
-        yield generate_im(font_char_ims[random.choice(fonts)], num_bg_images)
+        yield generate_im(num_bg_images)
 
 
 if __name__ == "__main__":
