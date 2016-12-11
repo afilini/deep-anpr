@@ -32,7 +32,6 @@ __all__ = (
     'generate_ims',
 )
 
-
 import itertools
 import math
 import os
@@ -167,7 +166,12 @@ def generate_sign():
     sign_color = cv2.merge((b, g, r))
     sign = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) / 255.
 
-    return sign, a, class_name
+    mask = numpy.zeros(a.shape, dtype='float32')
+    for y in range(mask.shape[0]):
+        for x in range(mask.shape[1]):
+                mask[y][x] = 1. if a[y][x] > 255. / 2 else 0
+
+    return sign, mask, class_name
 
 def generate_im(num_bg_images):
     bg = generate_bg(num_bg_images)
@@ -186,11 +190,13 @@ def generate_im(num_bg_images):
     sign_mask = cv2.warpAffine(sign_mask, M, (bg.shape[1], bg.shape[0]))
 
     out = sign * sign_mask + bg * (1.0 - sign_mask)
-
     out = cv2.resize(out, (OUTPUT_SHAPE[1], OUTPUT_SHAPE[0]))
 
     out += numpy.random.normal(scale=0.05, size=out.shape)
     out = numpy.clip(out, 0., 1.)
+
+    # Change the image brightness
+    out *= numpy.random.uniform(0.5, 1.4)
 
     return out, name, not out_of_bounds
 

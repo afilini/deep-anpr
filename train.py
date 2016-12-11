@@ -48,24 +48,19 @@ import common
 import gen
 import model
 
+def data_to_vector(p, sign):
+    vec = numpy.zeros(1 + len(model.CLASSES), dtype='float32')
+    vec[0] = 1 if p else 0
+    vec[model.CLASSES.index(sign) + 1] = 1
 
-def code_to_vec(p, code):
-    def char_to_vec(c):
-        y = numpy.zeros((len(common.CHARS),))
-        y[common.CHARS.index(c)] = 1.0
-        return y
-
-    c = numpy.vstack([char_to_vec(c) for c in code])
-
-    return numpy.concatenate([[1. if p else 0], c.flatten()])
-
+    return vec
 
 def read_data(img_glob):
     for fname in sorted(glob.glob(img_glob)):
         im = cv2.imread(fname)[:, :, 0].astype(numpy.float32) / 255.
-        code = fname.split("/")[1][9:16]
-        p = fname.split("/")[1][17] == '1'
-        yield im, code_to_vec(p, code)
+        sign = fname.split("/")[1][9:len(fname) - 7 - len(fname.split("/")[0])]
+        p = fname.split("/")[1][len(fname) - 6 - len(fname.split("/")[0])] == '1'
+        yield im, data_to_vector(p, sign)
 
 
 def unzip(b):
@@ -115,32 +110,29 @@ def mpgen(f):
 def read_batches(batch_size):
     g = gen.generate_ims()
     def gen_vecs():
-        for im, c, p in itertools.islice(g, batch_size):
-            yield im, code_to_vec(p, c)
+        for im, s, p in itertools.islice(g, batch_size):
+            yield im, data_to_vector(p, s)
 
     while True:
         yield unzip(gen_vecs())
 
 
 def get_loss(y, y_):
-    # Calculate the loss from digits being incorrect.  Don't count loss from
-    # digits that are in non-present plates.
-    digits_loss = tf.nn.softmax_cross_entropy_with_logits(
-                                          tf.reshape(y[:, 1:],
-                                                     [-1, len(common.CHARS)]),
-                                          tf.reshape(y_[:, 1:],
-                                                     [-1, len(common.CHARS)]))
-    digits_loss = tf.reshape(digits_loss, [-1, 7])
-    digits_loss = tf.reduce_sum(digits_loss, 1)
-    digits_loss *= (y_[:, 0] != 0)
-    digits_loss = tf.reduce_sum(digits_loss)
+    # Calculate the loss from predicted sign being incorrect.  Don't count loss from
+    # non-present sign.
+    #y = tf.Print(y, [y], summarize=100)
+    class_loss = tf.nn.softmax_cross_entropy_with_logits(y[:, 1:], tf.reshape(
+                                                                            [y_[:, 1:],y_[:, 1:]],
+                                                                            [-1, len(model.CLASSES)]))
+    class_loss *= tf.reshape([y_[:, 0], y_[:, 0]], [-1, 1])
+    class_loss = tf.reduce_sum(class_loss)
 
     # Calculate the loss from presence indicator being wrong.
-    presence_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-                                                          y[:, :1], y_[:, :1])
-    presence_loss = 7 * tf.reduce_sum(presence_loss)
+    presence_loss = tf.nn.sigmoid_cross_entropy_with_logits(y[:, 0], tf.reshape([y_[:, 0], y_[:, 0]], [-1]))
+    #presence_loss = tf.Print(presence_loss, [class_loss, presence_loss], summarize=100)
+    presence_loss = tf.reduce_sum(presence_loss)
 
-    return digits_loss, presence_loss, digits_loss + presence_loss
+    return class_loss, presence_loss, class_loss + presence_loss
 
 
 def train(learn_rate, report_steps, batch_size, initial_weights=None):
@@ -169,53 +161,38 @@ def train(learn_rate, report_steps, batch_size, initial_weights=None):
     """
     x, y, params = model.get_training_model()
 
-    y_ = tf.placeholder(tf.float32, [None, 7 * len(common.CHARS) + 1])
+    y_ = tf.placeholder(tf.float32, [None, 1 + len(model.CLASSES)])
 
-    digits_loss, presence_loss, loss = get_loss(y, y_)
+    class_loss, presence_loss, loss = get_loss(y, y_)
     train_step = tf.train.AdamOptimizer(learn_rate).minimize(loss)
 
-    best = tf.argmax(tf.reshape(y[:, 1:], [-1, 7, len(common.CHARS)]), 2)
-    correct = tf.argmax(tf.reshape(y_[:, 1:], [-1, 7, len(common.CHARS)]), 2)
+    best = tf.argmax(y[:, 1:], 1)
+    correct = tf.argmax(y[:, 1:], 1)
 
     if initial_weights is not None:
         assert len(params) == len(initial_weights)
         assign_ops = [w.assign(v) for w, v in zip(params, initial_weights)]
 
-    init = tf.initialize_all_variables()
-
-    def vec_to_plate(v):
-        return "".join(common.CHARS[i] for i in v)
+    init = tf.global_variables_initializer()
 
     def do_report():
         r = sess.run([best,
                       correct,
                       tf.greater(y[:, 0], 0),
                       y_[:, 0],
-                      digits_loss,
+                      class_loss,
                       presence_loss,
                       loss],
-                     feed_dict={x: test_xs, y_: test_ys})
-        num_correct = numpy.sum(
-                        numpy.logical_or(
-                            numpy.all(r[0] == r[1], axis=1),
-                            numpy.logical_and(r[2] < 0.5,
-                                              r[3] < 0.5)))
+                      feed_dict={x: test_xs, y_: test_ys})
+
         r_short = (r[0][:190], r[1][:190], r[2][:190], r[3][:190])
         for b, c, pb, pc in zip(*r_short):
-            print "{} {} <-> {} {}".format(vec_to_plate(c), pc,
-                                           vec_to_plate(b), float(pb))
-        num_p_correct = numpy.sum(r[2] == r[3])
+            print "{} {} <-> {} {}".format(model.CLASSES[c], pc,
+                                           model.CLASSES[b], float(pb))
 
-        print ("B{:3d} {:2.02f}% {:02.02f}% loss: {} "
-               "(digits: {}, presence: {}) |{}|").format(
+        print ("B{:3d} loss: {} ").format(
             batch_idx,
-            100. * num_correct / (len(r[0])),
-            100. * num_p_correct / len(r[2]),
-            r[6],
-            r[4],
-            r[5],
-            "".join("X "[numpy.array_equal(b, c) or (not pb and not pc)]
-                                           for b, c, pb, pc in zip(*r_short)))
+            r[6])
 
     def do_batch():
         sess.run(train_step,
@@ -261,7 +238,7 @@ if __name__ == "__main__":
         initial_weights = None
 
     train(learn_rate=0.001,
-          report_steps=20,
+          report_steps=5,
           batch_size=50,
           initial_weights=initial_weights)
 

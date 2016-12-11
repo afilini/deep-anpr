@@ -29,6 +29,7 @@ __all__ = (
     'get_training_model',
     'get_detect_model',
     'WINDOW_SHAPE',
+    'CLASSES'
 )
 
 
@@ -37,7 +38,8 @@ import tensorflow as tf
 import common
 
 
-WINDOW_SHAPE = (64, 128)
+WINDOW_SHAPE = (128, 128)
+CLASSES = ['yield', 'stop']
 
 
 # Utility functions
@@ -101,12 +103,9 @@ def convolutional_layers():
 
 def get_training_model():
     """
-    The training model acts on a batch of 128x64 windows, and outputs a (1 +
-    7 * len(common.CHARS) vector, `v`. `v[0]` is the probability that a plate is
+    The training model acts on a batch of 128x128 windows, and outputs a (1 +
+    len(CLASSES) vector, `v`. `v[0]` is the probability that a sign is
     fully within the image and is at the correct scale.
-    
-    `v[1 + i * len(common.CHARS) + c]` is the probability that the `i`'th
-    character is `c`.
 
     """
     x, conv_layer, conv_vars = convolutional_layers()
@@ -119,8 +118,8 @@ def get_training_model():
     h_fc1 = tf.nn.relu(tf.matmul(conv_layer_flat, W_fc1) + b_fc1)
 
     # Output layer
-    W_fc2 = weight_variable([2048, 1 + 7 * len(common.CHARS)])
-    b_fc2 = bias_variable([1 + 7 * len(common.CHARS)])
+    W_fc2 = weight_variable([2048, 1 + len(CLASSES)])
+    b_fc2 = bias_variable([1 + len(CLASSES)])
 
     y = tf.matmul(h_fc1, W_fc2) + b_fc2
 
