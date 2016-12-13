@@ -3,3 +3,5 @@
 test
 bgs
 log
+*.tar.gz
+train

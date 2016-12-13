@@ -38,6 +38,7 @@ import itertools
 import multiprocessing
 import random
 import sys
+import os
 import time
 
 import cv2
@@ -56,11 +57,12 @@ def data_to_vector(p, sign):
     return vec
 
 def read_data(img_glob):
-    for fname in sorted(glob.glob(img_glob)):
-        im = cv2.imread(fname)[:, :, 0].astype(numpy.float32) / 255.
-        sign = fname.split("/")[1][9:len(fname) - 7 - len(fname.split("/")[0])]
-        p = fname.split("/")[1][len(fname) - 6 - len(fname.split("/")[0])] == '1'
-        yield im, data_to_vector(p, sign)
+    while True:
+        for fname in sorted(glob.glob(img_glob)):
+            im = cv2.imread(fname)[:, :, 0].astype(numpy.float32) / 255.
+            sign = fname.split("/")[1][9:len(fname) - 7 - len(fname.split("/")[0])]
+            p = fname.split("/")[1][len(fname) - 6 - len(fname.split("/")[0])] == '1'
+            yield im, data_to_vector(p, sign)
 
 
 def unzip(b):
@@ -210,7 +212,7 @@ def train(learn_rate, report_steps, batch_size, initial_weights=None):
         try:
             last_batch_idx = 0
             last_batch_time = time.time()
-            batch_iter = enumerate(read_batches(batch_size))
+            batch_iter = enumerate(read_data("train/*.png"))
             for batch_idx, (batch_xs, batch_ys) in batch_iter:
                 do_batch()
                 if batch_idx % report_steps == 0:
@@ -227,6 +229,20 @@ def train(learn_rate, report_steps, batch_size, initial_weights=None):
             numpy.savez("weights.npz", *last_weights)
             return last_weights
 
+def generate_train_data(image_number):
+    if os.path.isdir("train"):
+        image_number = image_number - len(os.listdir("train"))
+    else: 
+        os.mkdir("train")
+
+    if image_number < 0: return
+
+    im_gen = itertools.islice(gen.generate_ims(), image_number)
+    for img_idx, (im, c, p) in enumerate(im_gen):
+        fname = "train/{:08d}_{}_{}.png".format(img_idx, c,
+                                               "1" if p else "0")
+        print fname
+        cv2.imwrite(fname, im * 255.)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
@@ -236,8 +252,10 @@ if __name__ == "__main__":
     else:
         initial_weights = None
 
+    generate_train_data(10)
+
     train(learn_rate=0.001,
           report_steps=5,
-          batch_size=50,
+          batch_size=5,
           initial_weights=initial_weights)
 
