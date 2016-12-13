@@ -47,27 +47,9 @@ from PIL import ImageFont
 
 import common
 from model import CLASSES
+from model import WINDOW_SHAPE
 
-OUTPUT_SHAPE = (128, 128)
 SIGNS_FOLDER = "signs"
-
-def make_char_ims(font_path, output_height):
-    font_size = output_height * 4
-
-    font = ImageFont.truetype(font_path, font_size)
-
-    height = max(font.getsize(c)[1] for c in CHARS)
-
-    for c in CHARS:
-        width = font.getsize(c)[0]
-        im = Image.new("RGBA", (width, height), (0, 0, 0))
-
-        draw = ImageDraw.Draw(im)
-        draw.text((0, 0), c, (255, 255, 255), font=font)
-        scale = float(output_height) / height
-        im = im.resize((int(width * scale), output_height), Image.ANTIALIAS)
-        yield c, numpy.array(im)[:, :, 0].astype(numpy.float32) / 255.
-
 
 def euler_to_mat(yaw, pitch, roll):
     # Rotate clockwise about the Y-axis
@@ -146,13 +128,13 @@ def generate_bg(num_bg_images):
     while not found:
         fname = "bgs/{:08d}.jpg".format(random.randint(0, num_bg_images - 1))
         bg = cv2.imread(fname, cv2.CV_LOAD_IMAGE_GRAYSCALE) / 255.
-        if (bg.shape[1] >= OUTPUT_SHAPE[1] and
-            bg.shape[0] >= OUTPUT_SHAPE[0]):
+        if (bg.shape[1] >= WINDOW_SHAPE[1] and
+            bg.shape[0] >= WINDOW_SHAPE[0]):
             found = True
 
-    x = random.randint(0, bg.shape[1] - OUTPUT_SHAPE[1])
-    y = random.randint(0, bg.shape[0] - OUTPUT_SHAPE[0])
-    bg = bg[y:y + OUTPUT_SHAPE[0], x:x + OUTPUT_SHAPE[1]]
+    x = random.randint(0, bg.shape[1] - WINDOW_SHAPE[1])
+    y = random.randint(0, bg.shape[0] - WINDOW_SHAPE[0])
+    bg = bg[y:y + WINDOW_SHAPE[0], x:x + WINDOW_SHAPE[1]]
 
     return bg
 
@@ -190,7 +172,7 @@ def generate_im(num_bg_images):
     sign_mask = cv2.warpAffine(sign_mask, M, (bg.shape[1], bg.shape[0]))
 
     out = sign * sign_mask + bg * (1.0 - sign_mask)
-    out = cv2.resize(out, (OUTPUT_SHAPE[1], OUTPUT_SHAPE[0]))
+    out = cv2.resize(out, (WINDOW_SHAPE[1], WINDOW_SHAPE[0]))
 
     out += numpy.random.normal(scale=0.05, size=out.shape)
     out = numpy.clip(out, 0., 1.)

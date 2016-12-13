@@ -38,7 +38,7 @@ import tensorflow as tf
 import common
 
 
-WINDOW_SHAPE = (128, 128)
+WINDOW_SHAPE = (64, 64)
 CLASSES = ['yield', 'stop']
 
 
@@ -112,10 +112,10 @@ def get_training_model():
     x, conv_layer, conv_vars = convolutional_layers()
     
     # Densely connected layer
-    W_fc1 = weight_variable([64 * 8 * 128, 2048])
+    W_fc1 = weight_variable([16 * 8 * 128, 2048])
     b_fc1 = bias_variable([2048])
 
-    conv_layer_flat = tf.reshape(conv_layer, [-1, 64 * 8 * 128])
+    conv_layer_flat = tf.reshape(conv_layer, [-1, 16 * 8 * 128])
     h_fc1 = tf.nn.relu(tf.matmul(conv_layer_flat, W_fc1) + b_fc1)
 
     # Output layer
@@ -139,15 +139,15 @@ def get_detect_model():
     x, conv_layer, conv_vars = convolutional_layers()
     
     # Fourth layer
-    W_fc1 = weight_variable([8 * 32 * 128, 2048])
-    W_conv1 = tf.reshape(W_fc1, [8,  32, 128, 2048])
+    W_fc1 = weight_variable([8 * 16 * 128, 2048])
+    W_conv1 = tf.reshape(W_fc1, [8,  16, 128, 2048])
     b_fc1 = bias_variable([2048])
     h_conv1 = tf.nn.relu(conv2d(conv_layer, W_conv1,
                                 stride=(1, 1), padding="VALID") + b_fc1) 
     # Fifth layer
-    W_fc2 = weight_variable([2048, 1 + 7 * len(common.CHARS)])
-    W_conv2 = tf.reshape(W_fc2, [1, 1, 2048, 1 + 7 * len(common.CHARS)])
-    b_fc2 = bias_variable([1 + 7 * len(common.CHARS)])
+    W_fc2 = weight_variable([2048, 1 + len(CLASSES)])
+    W_conv2 = tf.reshape(W_fc2, [1, 1, 2048, 1 + len(CLASSES)])
+    b_fc2 = bias_variable([1 + len(CLASSES)])
     h_conv2 = conv2d(h_conv1, W_conv2) + b_fc2
 
     return (x, h_conv2, conv_vars + [W_fc1, b_fc1, W_fc2, b_fc2])
