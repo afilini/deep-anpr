@@ -121,14 +121,12 @@ def get_loss(y, y_):
     # Calculate the loss from predicted sign being incorrect.  Don't count loss from
     # non-present sign.
     #y = tf.Print(y, [y], summarize=100)
-    class_loss = tf.nn.softmax_cross_entropy_with_logits(y[:, 1:], tf.reshape(
-                                                                            [y_[:, 1:],y_[:, 1:]],
-                                                                            [-1, len(model.CLASSES)]))
+    class_loss = tf.nn.softmax_cross_entropy_with_logits(y[:, 1:], y_[:, 1:])
     class_loss *= tf.reshape([y_[:, 0], y_[:, 0]], [-1, 1])
     class_loss = tf.reduce_sum(class_loss)
 
     # Calculate the loss from presence indicator being wrong.
-    presence_loss = tf.nn.sigmoid_cross_entropy_with_logits(y[:, 0], tf.reshape([y_[:, 0], y_[:, 0]], [-1]))
+    presence_loss = tf.nn.sigmoid_cross_entropy_with_logits(y[:, 0], y_[:, 0])
     #presence_loss = tf.Print(presence_loss, [class_loss, presence_loss], summarize=100)
     presence_loss = tf.reduce_sum(presence_loss)
 
@@ -167,7 +165,7 @@ def train(learn_rate, report_steps, batch_size, initial_weights=None):
     train_step = tf.train.AdamOptimizer(learn_rate).minimize(loss)
 
     best = tf.argmax(y[:, 1:], 1)
-    correct = tf.argmax(y[:, 1:], 1)
+    correct = tf.argmax(y_[:, 1:], 1)
 
     if initial_weights is not None:
         assert len(params) == len(initial_weights)
@@ -195,6 +193,7 @@ def train(learn_rate, report_steps, batch_size, initial_weights=None):
             r[6])
 
     def do_batch():
+        #writer = tf.summary.FileWriter("./log", sess.graph)
         sess.run(train_step,
                  feed_dict={x: batch_xs, y_: batch_ys})
         if batch_idx % report_steps == 0:
